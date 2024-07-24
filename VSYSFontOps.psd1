@@ -40,10 +40,9 @@
                         'Convert-FontWOFFCompress',
                         'Convert-FontWOFFCompressGoogle',
                         'Convert-FontWOFFDecompress',
-                        'Save-FontsToFolderByWord',
                         'Save-FontsToFolder',
-                        'Save-FontsToFolderMulti',
-                        'Update-TTFAutohintFont'
+                        'Update-TTFAutohintFont',
+                        'Convert-VariableFontToStaticFonts'
 
 
     PrivateData = @{

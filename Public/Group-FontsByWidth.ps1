@@ -1,9 +1,6 @@
 ﻿function Group-FontsByWidth {
-
-    [CmdletBinding(SupportsShouldProcess=$true)]
-
+    [CmdletBinding()]
     param(
-
         [Parameter(Mandatory, Position=0,
                 ParameterSetName="Fonts",
                 ValueFromPipeline,
@@ -40,7 +37,6 @@
                 }
             }
             'Folders' {
-
                 foreach ($Folder in $Folders) {
 
                     $RootHasFiles = Get-ChildItem -LiteralPath $Folder | Where-Object { $_ | Get-ChildItem -File | Select-Object -First 1 }
@@ -61,28 +57,30 @@
 
     end {
 
-        $ConvertToPascalCase = {
-            param([string]$text)
-            $text = $text -replace '(Extra|Ultra)(Condensed|Compressed|Compact|Narrow|Wide|Extended|Expanded|Slim)', '$1 $2'
-            $text = $text -replace '(Semi)(Condensed|Compressed|Compact|Narrow|Wide|Extended|Expanded|Slim)', '$1-$2'
-            return $text -replace '(^|-| )([a-z])', { $_.Groups[2].Value.ToUpper() }
+        if($PSCmdlet.ParameterSetName -eq 'Folders'){
+            $FolderList | ForEach-Object -Parallel {
+
+                $CurrentFolder    = $_
+                $FontList = $Using:FontList
+
+                [Array] $Fonts = Get-ChildItem $CurrentFolder -File -Recurse -Depth 10 | ForEach-Object {$_.FullName}
+                if($Fonts.Count -eq 0) { continue }
+                foreach ($Font in $Fonts) { $FontList.Add($Font) }
+
+            } -ThrottleLimit $MaxThreads
+
+            if($FontList.Count -eq 0) { return }
         }
 
-        $FontFolderList | ForEach-Object -Parallel {
-
-            $CurrentFolder    = $_
-            $FontList = $Using:FontList
-
-            [Array] $Fonts = Get-ChildItem $CurrentFolder -File -Recurse | ForEach-Object {$_.FullName}
-            if($Fonts.Count -eq 0) { continue }
-            foreach ($Font in $Fonts) { $FontList.Add($Font) }
-
-        } -ThrottleLimit $MaxThreads
-
-
-        if($FontList.Count -eq 0) { return }
 
         $FontList | ForEach-Object -Parallel {
+
+            $ConvertToPascalCase = {
+                param([string]$text)
+                $text = $text -replace '(Extra|Ultra)(Condensed|Compressed|Compact|Narrow|Wide|Extended|Expanded|Slim)', '$1 $2'
+                $text = $text -replace '(Semi)(Condensed|Compressed|Compact|Narrow|Wide|Extended|Expanded|Slim)', '$1-$2'
+                return $text -replace '(^|-| )([a-z])', { $_.Groups[2].Value.ToUpper() }
+            }
 
             $CurrentFont            = $_
             $CurrentFontFilename    = [System.IO.Path]::GetFileNameWithoutExtension($CurrentFont)
@@ -90,7 +88,6 @@
             $regexPatternA          = $Using:regexPatternA
             $regexPatternB          = $Using:regexPatternB
             $regexPatternC          = $Using:regexPatternC
-            $ConvertToPascalCase    = $Using:ConvertToPascalCase
 
             if ($CurrentFontFilename -match $regexPatternA)      { $WidthFolderName = & $ConvertToPascalCase -text $matches[0] }
             elseif ($CurrentFontFilename -cmatch $regexPatternB) { $WidthFolderName = & $ConvertToPascalCase -text $matches[0] }
@@ -100,15 +97,13 @@
             $CurrentFontDirectory = [System.IO.Path]::GetDirectoryName($CurrentFont)
             $FinalWidthFolderPath = Join-Path $CurrentFontDirectory $WidthFolderName
 
-            if ($PSCmdlet.ShouldProcess($CurrentFont, "Move to $FinalWidthFolderPath")) {
-                if (-not (Test-Path $FinalWidthFolderPath -PathType Container)) {
-                    New-Item -ItemType Directory -Path $FinalWidthFolderPath | Out-Null
-                }
-
-                $FinalFontPath = Join-Path $FinalWidthFolderPath ([System.IO.Path]::GetFileName($CurrentFont))
-                [IO.File]::Move($CurrentFont, $FinalFontPath)
-                # Move-Item -Path $CurrentFont -Destination $FinalFontPath
+            if (-not (Test-Path $FinalWidthFolderPath -PathType Container)) {
+                New-Item -ItemType Directory -Path $FinalWidthFolderPath -ErrorAction SilentlyContinue | Out-Null
             }
+
+            $FinalFontPath = Join-Path $FinalWidthFolderPath ([System.IO.Path]::GetFileName($CurrentFont))
+            [IO.File]::Move($CurrentFont, $FinalFontPath)
+            # Move-Item -Path $CurrentFont -Destination $FinalFontPath
 
         } -ThrottleLimit $MaxThreads
     }

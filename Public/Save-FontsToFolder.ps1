@@ -2,9 +2,20 @@ function Save-FontsToFolder {
 
     [CmdletBinding()]
     param (
-        [parameter(Mandatory,Position=0,ValueFromPipeline,ValueFromPipelineByPropertyName )]
+
+        [Parameter(Mandatory, Position=0,
+                ParameterSetName="Fonts",
+                ValueFromPipeline,
+                ValueFromPipelineByPropertyName)]
         [ValidateNotNullOrEmpty()]
-        [String[]] $Fonts,
+        [string[]] $Fonts,
+
+        [Parameter(Mandatory, Position=0,
+                ParameterSetName="Folders",
+                ValueFromPipeline,
+                ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [string[]] $Folders,
 
         [Int32] $MaxThreads = 16,
         [Switch] $Versioned,
@@ -14,14 +25,14 @@ function Save-FontsToFolder {
     begin {
 
         $FontList = [System.Collections.Generic.List[String]]@()
-
-        try {
-            & "$env:FM_PY_VENV\FontTools\Scripts\Activate.ps1"
-        } catch {
-            throw "Can't activate FontTools environment. Aborting."
-        }
+        $FolderList = [System.Collections.Generic.List[String]]@()
 
         if($Versioned){
+            try {
+                & "$env:FM_PY_VENV\FontTools\Scripts\Activate.ps1"
+            } catch {
+                throw "Can't activate FontTools environment. Aborting."
+            }
             $GetFontVersionScript = "$env:FM_PY_FONT_SCRIPTS\get_font_version.py"
             if(-not(Test-Path -Path $GetFontVersionScript)){
                 throw "Can't find get_font_version.py. Aborting."
@@ -30,17 +41,56 @@ function Save-FontsToFolder {
     }
 
     process {
-        foreach ($Font in $Fonts) {
-            $FontList.Add($Font)
+
+        Write-Host -f Green "`$Fonts:" $Fonts
+
+        switch ($PSCmdlet.ParameterSetName) {
+            'Fonts'  {
+                foreach ($Font in $Fonts) {
+                    $FontList.Add($Font)
+                }
+            }
+            'Folders' {
+                foreach ($Folder in $Folders) {
+
+                    $RootHasFiles = Get-ChildItem -LiteralPath $Folder | Where-Object { $_ | Get-ChildItem -File | Select-Object -First 1 }
+                    if($RootHasFiles){
+                        $FolderList.Add($Folder)
+                    }
+
+                    $InnerFolders = Get-ChildItem -LiteralPath $Folder -Directory -Recurse -Depth 10 | Where-Object { $_ | Get-ChildItem -File | Select-Object -First 1 }
+                    if($InnerFolders){
+                        foreach ($Item in $InnerFolders) {
+                            $FolderList.Add($Item)
+                        }
+                    }
+                }
+            }
         }
     }
 
     end {
 
+        if($PSCmdlet.ParameterSetName -eq 'Folders'){
+            $FolderList | ForEach-Object -Parallel {
+
+                $CurrentFolder = $_
+                $FontList = $Using:FontList
+
+                [Array] $Fonts = Get-ChildItem $CurrentFolder -File -Recurse -Depth 10 | ForEach-Object {$_.FullName}
+                if($Fonts.Count -eq 0) { continue }
+                foreach ($Font in $Fonts) { $FontList.Add($Font) }
+
+            } -ThrottleLimit $MaxThreads
+
+            if($FontList.Count -eq 0) { return }
+        }
+
+        Write-Host -f Red "`$FontList:" $FontList
+
         $FontList | ForEach-Object -Parallel {
 
             $FontFile = $_
-
             $Versioned            = $Using:Versioned
             $WFR                  = $Using:WFR
             $FileName             = [System.IO.Path]::GetFileName($FontFile)
